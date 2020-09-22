@@ -49,8 +49,8 @@ int main(int argc, char* argv[]) {
 	char  line[MAX_INPUT_SIZE];  //입력 한줄 받아 저장할 문자열
 	char 	execTo[MAX_TOKEN_SIZE]; //exec해서 넘어갈 실행파일 있는 위치 저장할 문자열
 	char  **tokens; //토큰 배열
-	char  **cmd;
-	char  **cmdTokens;
+	char  **cmd; //파이프로 구분된 명령들 들어간 배열
+	char  **cmdTokens; //파이프로 구분된 명령 하나를 토큰화하여 들어갈 배열
 	int i, status, cmdCnt, cmdTokenCnt;
 	int fd[2]; //읽기용 파이프, 쓰기용 파이프를 지정하기 위한 배열 선언
 	int fdd;
@@ -85,62 +85,61 @@ int main(int argc, char* argv[]) {
 
 
 		if(tokens[0] == NULL) //엔터만 쳤을 경우 넘어가게
-		continue;
+			continue;
 
-		cmdCnt = 0;
-		cmdTokenCnt = 0;
+		cmdCnt = 0; //파이프로 구분된 명령어 카운트
+		cmdTokenCnt = 0; //명령어 하나에서 토큰 카운트
 		cmd = (char **)malloc(MAX_NUM_CMDS * sizeof(char *)); //명령어 배열 공간할당
 		cmd[cmdCnt] = (char*)malloc(MAX_CMD_SIZE * sizeof(char)); //명령어의 새자리 동적할당
 		bzero(cmd[0], sizeof(MAX_CMD_SIZE)); //cmd를 다 0으로 채운다.
-		for(i=0;tokens[i]!=NULL;i++){
-			if(tokens[i][0] == '|'){
-				cmdCnt++;
-				cmdTokenCnt = 0;
+		for(i=0;tokens[i]!=NULL;i++){ //line 한줄 토큰화한거 차례대로 검사
+			if(tokens[i][0] == '|'){ //파이프 만나면
+				cmdCnt++; //cmdCnt 하나 더해줌
+				cmdTokenCnt = 0; //명령어 토큰 카운트 초기화
 				cmd[cmdCnt] = (char*)malloc(MAX_CMD_SIZE * sizeof(char)); //명령어의 새자리 동적할당
-				continue;
+				continue; //파이프는 넘어가게
 			}
-			if(cmdTokenCnt == 0)
-				sprintf(cmd[cmdCnt], "%s", tokens[i]);
+			if(cmdTokenCnt == 0) //파이프로 구분되는 명령어 안에서 제일 먼저 나오는 토큰일 경우
+				sprintf(cmd[cmdCnt], "%s", tokens[i]); //cmd에 토큰 추가
 			else
-				sprintf(cmd[cmdCnt], "%s %s", cmd[cmdCnt], tokens[i]);
-			cmdTokenCnt++;
+				sprintf(cmd[cmdCnt], "%s %s", cmd[cmdCnt], tokens[i]); //cmd 뒤에 토큰 추가
+			cmdTokenCnt++; //명령어 토큰 카운트 더하기
 		}
 
 
 		fdd = 0;
-		while(*cmd != NULL)
+		while(*cmd != NULL) //파이프로 구분된 명령어 차례대로 검사
 		{
 			*(*cmd+strlen(*cmd)) = '\n'; //명령 끝에 널대신에 개행
 			cmdTokens = tokenize(*cmd); //명령 토큰으로 찢어주기
 
-
-			if (pipe(fd) < 0){
+			if (pipe(fd) < 0){ //파이프(출력이 fd[1], 입력이 fd[0]으로 설정)
 				fprintf(stderr, "pipe error\n");
 				exit(1);
 			}
-			if((pid = fork()) < 0) {
+			if((pid = fork()) < 0) { //자식프로세스 생성(에러처리)
 				fprintf(stderr, "fork error\n");
 				exit(1);
 			}
 			else if(pid == 0) { //자식 프로세스
-				dup2(fdd, 0);
-				if (*(cmd+1) != NULL)
-					dup2(fd[1],1);
-				close(fd[0]);
+				dup2(fdd, 0); //표준 입력이 fdd로 바뀜
+				if (*(cmd+1) != NULL) //다음 명령어가 있을 경우
+					dup2(fd[1],1); //fd[1]으로 표준출력하도록
+				close(fd[0]); //fdd로 표준입력하게 했으니 입력 파이프는 닫아버린다.
 
+				sprintf(execTo, "/bin/%s", cmdTokens[0]); //exec할 위치 execTo에 저장
 
-				sprintf(execTo, "/bin/%s", cmdTokens[0]);
-				if (execv(execTo, cmdTokens) < 0) {
+				if (execv(execTo, cmdTokens) < 0) { //프로세스 전환(에러처리포함)
 					fprintf(stderr, "execv error\n");
-					exit(1);
+					exit(1); 
 				}
 
 			}
 			else { //부모 프로세스
-				wait(&status);
-				close(fd[1]);
-				fdd=fd[0];
-				cmd++;
+				wait(&status); //자식 프로세스 끝나길 기다림
+				close(fd[1]); //출력 파이프 닫아버린다.
+				fdd=fd[0]; //표준 입력을 입력 파이프로 바뀜
+				cmd++; //다음 명령어 읽기
 			}
 		}
 
@@ -151,19 +150,8 @@ int main(int argc, char* argv[]) {
 		}
 		free(tokens); //토큰 배열 할당 해제
 
-		//토큰 배열에 토큰들 할당 해제
-		for(i=0;cmdTokens[i]!=NULL;i++){
-			free(cmdTokens[i]); //토큰 하나 할당 해제
-		}
-		free(cmdTokens); //토큰 배열 할당 해제
 
 	}
-	//명령어 배열에 명령어들 할당 해제
-	for(i=0;cmd[i]!=NULL;i++){
-		free(cmd[i]); //명령 하나 할당 해제
-	}
-	free(cmd); //명령 배열 할당 해제
-
 	return 0;
 }
 
